@@ -1,5 +1,10 @@
 # 대한민국의 공휴일
 
+> **독립 호스팅 포크**: GitHub Actions로 데이터를 자동 갱신하고 GitHub Pages에서
+> JSON·CSV·ICS를 직접 제공합니다. 조회와 Pages 빌드는 원저자의 서버나 CDN에 의존하지 않습니다.
+> 설정·사용법·남아 있는 의존성은 [포크 운영 안내](./FORK.md)를 참고하세요.
+> 아래 npm 설치 안내는 원본 패키지에 관한 설명입니다.
+
 우주항공청에서 발표한 월력요항을 사용해 `Date` 객체 또는 `YYYY-MM-DD` 날짜 문자열의 공휴일 여부와 그 명칭들을 확인합니다.
 
 `CSV`, `JSON`, `ICS` 파일(호스팅) 및 구독할 수 있는 캘린더 URL도 제공됩니다. [안내](https://github.com/hyunbinseo/holidays-kr#readme)

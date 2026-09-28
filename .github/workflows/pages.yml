@@ -1,0 +1,98 @@
+name: Update and deploy Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 21 * * *' # 매일 06:23 KST (실행 지연 가능)
+  workflow_dispatch:
+    inputs:
+      sync:
+        description: 원본 데이터도 갱신
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Serialize updates and deployments; never cancel an in-progress data commit.
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.sync)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Checkout upstream data (never execute upstream code)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: hyunbinseo/holidays-kr
+          ref: main
+          path: .upstream
+          persist-credentials: false
+          sparse-checkout: public
+      - run: node --test scripts/pages.test.mjs
+      - run: node scripts/pages.mjs sync .upstream/public
+      - run: node scripts/pages.mjs build
+      - name: Commit only validated data changes
+        run: |
+          git add public src/holidays src/anniversaries.ts
+          if ! git diff --cached --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            upstream_sha=$(git -C .upstream rev-parse HEAD)
+            git commit -m "chore: sync holiday data from ${upstream_sha}"
+            git push origin HEAD:main
+          fi
+
+  build:
+    needs: update
+    if: >-
+      always() && !cancelled() &&
+      (needs.update.result == 'success' || needs.update.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Bot pushes do not trigger another workflow: build the updated branch here.
+          ref: ${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: node --test scripts/pages.test.mjs
+      - run: node scripts/pages.mjs build
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: >-
+      always() && !cancelled() && needs.build.result == 'success' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

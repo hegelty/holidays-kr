@@ -37,6 +37,8 @@
 		"access": "public"
 	},
 	"scripts": {
+		"pages:build": "node scripts/pages.mjs build",
+		"pages:test": "node --test scripts/pages.test.mjs",
 		"prepack": "node --run check && tsdown",
 		"preversion": "node --run check && vitest run",
 		"version": "node cli/scripts/write/all.ts && git add -A public",
