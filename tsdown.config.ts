@@ -6,6 +6,7 @@ export default defineConfig({
 		all: 'src/holidays/all.ts',
 	},
 	dts: true,
+	tsconfig: 'tsconfig.lib.json',
 	format: ['esm'],
 	target: ['baseline-widely-available', 'node18'],
 	platform: 'neutral',
