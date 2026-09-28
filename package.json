@@ -39,6 +39,8 @@
 	"scripts": {
 		"pages:build": "node scripts/pages.mjs build",
 		"pages:test": "node --test scripts/pages.test.mjs",
+		"data:fetch": "python3 scripts/fetch_public_data.py",
+		"data:test": "python3 -m unittest discover -s scripts -p 'test_*.py'",
 		"prepack": "node --run check && tsdown",
 		"preversion": "node --run check && vitest run",
 		"version": "node cli/scripts/write/all.ts && git add -A public",

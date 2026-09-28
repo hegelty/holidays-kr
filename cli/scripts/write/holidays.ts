@@ -3,7 +3,7 @@ import { HOLIDAYS_DIR } from '#cli/lib/config.ts';
 import { write } from '#cli/lib/write.ts';
 import * as holidays from '#src/holidays/all.ts';
 
-await checkHolidays(holidays, { interactive: true });
+await checkHolidays(holidays);
 
 await write({
 	presets: holidays,

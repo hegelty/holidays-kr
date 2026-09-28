@@ -3,4 +3,7 @@ dist
 *.log
 .DS_Store
 _site
-.upstream
+.data-update
+__pycache__/
+.env
+.env.*

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       sync:
-        description: 원본 데이터도 갱신
+        description: 공공데이터 API에서 직접 갱신 (Secret 필요)
         type: boolean
         default: true
 
@@ -25,6 +25,7 @@ jobs:
   update:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.sync)
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -35,16 +36,13 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
-      - name: Checkout upstream data (never execute upstream code)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: hyunbinseo/holidays-kr
-          ref: main
-          path: .upstream
-          persist-credentials: false
-          sparse-checkout: public
       - run: node --test scripts/pages.test.mjs
-      - run: node scripts/pages.mjs sync .upstream/public
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Collect directly from the public data API
+        run: python3 scripts/fetch_public_data.py
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+      - run: node scripts/pages.mjs import .data-update
       - run: node scripts/pages.mjs build
       - name: Commit only validated data changes
         run: |
@@ -52,8 +50,7 @@ jobs:
           if ! git diff --cached --quiet; then
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            upstream_sha=$(git -C .upstream rev-parse HEAD)
-            git commit -m "chore: sync holiday data from ${upstream_sha}"
+            git commit -m "chore: update special days from the public data API"
             git push origin HEAD:main
           fi
 
@@ -63,6 +60,7 @@ jobs:
       always() && !cancelled() &&
       (needs.update.result == 'success' || needs.update.result == 'skipped')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -75,6 +73,7 @@ jobs:
           node-version: '22'
           package-manager-cache: false
       - run: node --test scripts/pages.test.mjs
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - run: node scripts/pages.mjs build
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.event_name != 'pull_request'
@@ -87,6 +86,7 @@ jobs:
       always() && !cancelled() && needs.build.result == 'success' &&
       github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write

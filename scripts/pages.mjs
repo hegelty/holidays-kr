@@ -7,6 +7,29 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const json = (value) => JSON.stringify(value, null, '\t') + '\n';
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+export const PUBLIC_DATA_SOURCE = {
+	provider: '한국천문연구원',
+	service: 'SpcdeInfoService',
+	url: 'https://www.data.go.kr/data/15012690/openapi.do',
+};
+
+export function validateSource(source, datasets) {
+	const expected = {
+		...PUBLIC_DATA_SOURCE,
+		years: Object.fromEntries(Object.entries(datasets).map(([kind, data]) => [kind, Object.keys(data)])),
+	};
+	if (json(source) !== json(expected)) throw new Error('Invalid public-data source metadata');
+	return expected;
+}
+
+async function readSource(directory, datasets, required = false) {
+	try {
+		return validateSource(JSON.parse(await readFile(join(directory, 'source.json'), 'utf8')), datasets);
+	} catch (error) {
+		if (!required && error.code === 'ENOENT') return null;
+		throw error;
+	}
+}
 
 export function validate(data) {
 	if (!object(data) || !Object.keys(data).length) throw new Error('Empty or invalid dataset');
@@ -103,16 +126,18 @@ export async function writeDatasets(directory, datasets, timestamp) {
 	}
 }
 
-export async function sync(upstream, repository = root) {
+export async function importSnapshot(directory, repository = root) {
 	const current = await readDatasets(join(repository, 'public'));
-	const next = await readDatasets(upstream);
-	// A truncated upstream snapshot must never silently remove a supported year.
+	const next = await readDatasets(directory);
+	const source = await readSource(directory, next, true);
+	const oldSource = await readSource(join(repository, 'public'), current);
+	// A truncated API snapshot must never silently remove a supported year.
 	for (const kind of Object.keys(current)) {
 		for (const year of Object.keys(current[kind])) {
-			if (!next[kind][year]) throw new Error(`Upstream removed ${kind}/${year}`);
+			if (!next[kind][year]) throw new Error(`Snapshot removed ${kind}/${year}`);
 		}
 	}
-	if (json(current) === json(next)) return false;
+	if (json(current) === json(next) && json(source) === json(oldSource)) return false;
 	await writeDatasets(join(repository, 'public'), next, new Date());
 	// Keep the existing npm API's local presets consistent with the Pages snapshot.
 	await mkdir(join(repository, 'src/holidays'), { recursive: true });
@@ -124,11 +149,13 @@ export async function sync(upstream, repository = root) {
 	await writeFile(join(repository, 'src/anniversaries.ts'),
 		Object.entries(next.anniversaries).map(([year, preset]) =>
 			`export const y${year} = ${json(preset).trim()} as const;\n`).join('\n'));
+	await writeFile(join(repository, 'public/source.json'), json(source));
 	return true;
 }
 
 export async function build(repository = root, output = join(repository, '_site')) {
 	const datasets = await readDatasets(join(repository, 'public'));
+	const source = await readSource(join(repository, 'public'), datasets);
 	// Reproducible output: unrelated code commits do not change event timestamps.
 	const seconds = execFileSync('git', ['log', '-1', '--format=%ct', '--', 'public'], {
 		cwd: repository, encoding: 'utf8',
@@ -150,6 +177,7 @@ export async function build(repository = root, output = join(repository, '_site'
 		schemaVersion: 1,
 		dataUpdatedAt: new Date(Number(seconds) * 1000).toISOString(),
 		years: Object.keys(datasets.holidays),
+		source: source ?? { provider: 'legacy-snapshot', note: '공공데이터 API 최초 갱신 대기 중' },
 		digest: createHash('sha256').update(json(datasets)).digest('hex'),
 	}));
 	const sections = Object.entries(datasets).map(([kind, data]) => {
@@ -167,14 +195,16 @@ export async function build(repository = root, output = join(repository, '_site'
 <style>body{font:1rem/1.7 system-ui,sans-serif;max-width:48rem;margin:3rem auto;padding:0 1rem}a{color:#0759b5}li{margin:.3rem 0}</style>
 <h1>대한민국의 공휴일</h1><p>이 사이트의 정적 파일만으로 조회할 수 있습니다. API 키나 외부 CDN은 필요하지 않습니다.</p>
 <p>캘린더 앱에 ICS 링크 주소를 복사해 구독하세요. 기념일은 공휴일과 별도입니다.</p>
-${sections}<p><a href="./status.json">데이터 상태</a> · 원본: hyunbinseo/holidays-kr (MIT)</p></html>
+${sections}<p><a href="./status.json">데이터 상태</a> · ${
+	source ? '데이터: 한국천문연구원 특일 정보 API' : '데이터: 기존 스냅샷 (공공데이터 API 최초 갱신 대기 중)'
+}</p><p>코드 기반: hyunbinseo/holidays-kr (MIT)</p></html>
 `);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	const command = process.argv[2];
 	if (command === 'build') await build();
-	else if (command === 'sync' && process.argv[3]) {
-		console.log(await sync(resolve(process.argv[3])) ? 'Data updated' : 'Already up to date');
-	} else throw new Error('Usage: node scripts/pages.mjs build | sync <upstream-public-directory>');
+	else if (command === 'import' && process.argv[3]) {
+		console.log(await importSnapshot(resolve(process.argv[3])) ? 'Data updated' : 'Already up to date');
+	} else throw new Error('Usage: node scripts/pages.mjs build | import <collected-data-directory>');
 }

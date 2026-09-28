@@ -4,13 +4,24 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { build, calendar, foldLine, readDatasets, sync, validate, writeDatasets } from './pages.mjs';
+import {
+	build, calendar, foldLine, readDatasets, importSnapshot, validate, writeDatasets,
+	PUBLIC_DATA_SOURCE, validateSource,
+} from './pages.mjs';
 
 const data = {
 	holidays: { '2026': { '2026-01-01': ['1월 1일'] } },
 	anniversaries: { '2026': { '2026-05-08': ['어버이 날'] } },
 };
 const stamp = '2026-01-01T00:00:00Z';
+
+async function writeSnapshot(directory, datasets) {
+	await writeDatasets(directory, datasets, stamp);
+	await writeFile(join(directory, 'source.json'), JSON.stringify({
+		...PUBLIC_DATA_SOURCE,
+		years: Object.fromEntries(Object.entries(datasets).map(([kind, presets]) => [kind, Object.keys(presets)])),
+	}));
+}
 
 async function fixture(t) {
 	const directory = await mkdtemp(join(tmpdir(), 'holidays-pages-'));
@@ -57,37 +68,62 @@ test('writes all formats with quoted CSV and separate anniversaries', async (t) 
 	assert.ok((await readFile(join(directory, 'anniversaries/basic.ics'), 'utf8')).includes('어버이 날'));
 });
 
-test('sync is idempotent and never executes upstream code', async (t) => {
+test('import is idempotent and never executes files from the staging directory', async (t) => {
 	const directory = await fixture(t);
-	const upstream = join(directory, 'upstream');
+	const collected = join(directory, 'collected');
 	const repository = join(directory, 'fork');
-	await writeDatasets(upstream, data, stamp);
-	await writeDatasets(join(repository, 'public'), data, stamp);
-	await writeFile(join(upstream, 'payload.ts'), 'throw new Error("must never execute")');
+	await writeSnapshot(collected, data);
+	await writeSnapshot(join(repository, 'public'), data);
+	await writeFile(join(collected, 'payload.ts'), 'throw new Error("must never execute")');
 	const original = await readFile(join(repository, 'public/basic.ics'), 'utf8');
-	assert.equal(await sync(upstream, repository), false);
+	assert.equal(await importSnapshot(collected, repository), false);
 	assert.equal(await readFile(join(repository, 'public/basic.ics'), 'utf8'), original);
 	const next = structuredClone(data);
 	next.holidays['2027'] = { '2027-01-01': ['1월 1일'] };
-	await writeDatasets(upstream, next, stamp);
-	assert.equal(await sync(upstream, repository), true);
+	await writeSnapshot(collected, next);
+	assert.equal(await importSnapshot(collected, repository), true);
 	assert.deepEqual(await readDatasets(join(repository, 'public')), next);
 	assert.ok((await readFile(join(repository, 'src/holidays/all.ts'), 'utf8')).includes('y2027'));
 	assert.ok((await readFile(join(repository, 'src/holidays/2027.ts'), 'utf8')).includes('2027-01-01'));
-	assert.equal(await sync(upstream, repository), false);
+	assert.equal(await importSnapshot(collected, repository), false);
+	const source = JSON.parse(await readFile(join(repository, 'public/source.json'), 'utf8'));
+	assert.equal(source.provider, '한국천문연구원');
 });
 
 test('rejects missing years and invalid snapshots before modifying local data', async (t) => {
 	const directory = await fixture(t);
-	const upstream = join(directory, 'upstream');
+	const collected = join(directory, 'collected');
 	const repository = join(directory, 'fork');
 	await writeDatasets(join(repository, 'public'), data, stamp);
 	const missing = structuredClone(data);
 	missing.holidays = { '2027': { '2027-01-01': ['1월 1일'] } };
-	await writeDatasets(upstream, missing, stamp);
-	await assert.rejects(sync(upstream, repository), /removed/);
-	await writeFile(join(upstream, 'basic.json'), '{"2026":{"2026-02-30":["bad"]}}');
-	await assert.rejects(sync(upstream, repository), /Invalid date/);
+	await writeSnapshot(collected, missing);
+	await assert.rejects(importSnapshot(collected, repository), /removed/);
+	await writeFile(join(collected, 'basic.json'), '{"2026":{"2026-02-30":["bad"]}}');
+	await assert.rejects(importSnapshot(collected, repository), /Invalid date/);
+	assert.deepEqual(await readDatasets(join(repository, 'public')), data);
+});
+
+test('first API import records provenance even when existing dates are unchanged', async (t) => {
+	const directory = await fixture(t);
+	const collected = join(directory, 'collected');
+	const repository = join(directory, 'fork');
+	await writeDatasets(join(repository, 'public'), data, stamp);
+	await writeSnapshot(collected, data);
+	assert.equal(await importSnapshot(collected, repository), true);
+	assert.equal(await importSnapshot(collected, repository), false);
+});
+
+test('rejects missing or unexpected provenance before importing', async (t) => {
+	const directory = await fixture(t);
+	const collected = join(directory, 'collected');
+	const repository = join(directory, 'fork');
+	await writeDatasets(join(repository, 'public'), data, stamp);
+	await writeDatasets(collected, data, stamp);
+	await assert.rejects(importSnapshot(collected, repository), /ENOENT/);
+	await writeFile(join(collected, 'source.json'), '{"ServiceKey":"must not be published"}');
+	await assert.rejects(importSnapshot(collected, repository), /Invalid public-data/);
+	assert.throws(() => validateSource({ ...PUBLIC_DATA_SOURCE, years: {} }, data), /Invalid public-data/);
 	assert.deepEqual(await readDatasets(join(repository, 'public')), data);
 });
 
@@ -111,8 +147,13 @@ test('offline build is reproducible and generates project-relative links and sta
 	assert.ok(html.includes('href="./anniversaries/2026.json"'));
 	assert.ok(!html.includes('<script'));
 	assert.deepEqual(JSON.parse(status).years, ['2026']);
+	assert.equal(JSON.parse(status).source.provider, 'legacy-snapshot');
 	assert.ok((await readdir(output)).includes('.nojekyll'));
 	assert.equal(await readFile(join(output, 'CNAME'), 'utf8'), 'holidays.hegelty.me\n');
+	await writeSnapshot(join(repository, 'public'), data);
+	await build(repository, output);
+	const sourcedStatus = JSON.parse(await readFile(join(output, 'status.json'), 'utf8'));
+	assert.equal(sourcedStatus.source.provider, '한국천문연구원');
 });
 
 test('checked-in holiday and anniversary snapshots are valid', async () => {
