@@ -1,5 +1,7 @@
 # 독립 호스팅 포크 운영
 
+[![데이터 갱신 및 배포](https://github.com/hegelty/holidays-kr/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/hegelty/holidays-kr/actions/workflows/pages.yml)
+
 ## 구성
 
 ```text
@@ -53,8 +55,8 @@ API 호출 없이 첫 배포를 하려면 수동 실행 시 `sync`를 해제합�
 - 기념일: `anniversaries/` 아래 같은 파일 구조
 - 상태: `https://holidays.hegelty.me/status.json`
 
-전체 JSON은 `{ "2026": { "2026-01-01": ["1월 1일"] }, ... }` 구조입니다.
-연도별 JSON은 `{ "2026-01-01": ["1월 1일"], ... }` 구조입니다.
+전체 JSON은 `{ "2026": { "2026-01-01": ["1월1일"] }, ... }` 구조입니다.
+연도별 JSON은 `{ "2026-01-01": ["1월1일"], ... }` 구조입니다.
 날짜가 겹치면 명칭 배열에 여러 항목이 포함됩니다.
 캘린더 구독 주소는 기존과 동일하며, 기념일은 공휴일과 별도로 제공합니다.
 
@@ -63,7 +65,8 @@ API 호출 없이 첫 배포를 하려면 수동 실행 시 `sync`를 해제합�
 매일 KST 06:23에 수집을 시도합니다. 예약 실행은 지연될 수 있습니다.
 
 - HTTPS로 `SpcdeInfoService/getRestDeInfo`와 `getAnniversaryInfo`를 호출합니다.
-- 기존에 지원하는 **모든 연도**와 한국 시간 기준 **올해·내년**을 조회합니다.
+- 기존에 지원하는 **모든 연도**와 한국 시간 기준 **올해부터 3년 뒤까지**를 조회합니다.
+  예를 들어 2026년에는 2026~2029년을 시도합니다. 새 미래 연도는 API에 게시된 경우에만 제공됩니다.
   과거 데이터도 API에서 다시 수집하므로 원본 저장소의 과거 데이터를 계속 복사하지 않습니다.
 - 연도별 조회에서 `pageNo`, `numOfRows`, `totalCount`를 확인하고 모든 페이지를 수집합니다.
 - 공휴일은 `isHoliday=Y`인 항목만 반영하며, 기념일은 휴일 여부와 관계없이 반영합니다.

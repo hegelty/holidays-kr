@@ -170,7 +170,7 @@ def collect(current, key, current_year, transport=request_xml):
     # Re-fetch every supported year, rather than perpetually copying upstream history.
     for kind in OPERATIONS:
         existing = current[kind]
-        years = sorted(set(existing) | {str(current_year), str(current_year + 1)})
+        years = sorted(set(existing) | {str(year) for year in range(current_year, current_year + 4)})
         datasets[kind] = {}
         for year in years:
             if not re.fullmatch(r"2\d{3}", year):

@@ -125,9 +125,17 @@ class PublicDataTests(unittest.TestCase):
 
     def test_new_future_year_can_be_absent_but_existing_year_cannot(self):
         current = {"holidays": {"2026": {}}, "anniversaries": {"2026": {}}}
-        transport = lambda op, year, page, key: response([item()]) if year == 2026 else response()
+        queried = []
+        def transport(op, year, page, key):
+            queried.append((op, year))
+            return response([item()]) if year == 2026 else response()
         data = collect(current, "key", 2026, transport)
         self.assertEqual(list(data["holidays"]), ["2026"])
+        self.assertEqual(
+            queried,
+            [(operation, year) for operation in ("getRestDeInfo", "getAnniversaryInfo")
+             for year in (2026, 2027, 2028, 2029)],
+        )
         current["holidays"]["2027"] = {}
         with self.assertRaises(CollectionError):
             collect(current, "key", 2026, transport)
@@ -137,7 +145,8 @@ class PublicDataTests(unittest.TestCase):
     def test_new_published_year_is_added(self):
         transport = lambda op, year, page, key: response([item(date=f"{year}0101")])
         data = collect({"holidays": {"2026": {}}, "anniversaries": {"2026": {}}}, "key", 2026, transport)
-        self.assertEqual(list(data["holidays"]), ["2026", "2027"])
+        self.assertEqual(list(data["holidays"]), ["2026", "2027", "2028", "2029"])
+        self.assertEqual(list(data["anniversaries"]), ["2026", "2027", "2028", "2029"])
 
     def test_failed_collection_does_not_write_and_success_has_no_key(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -154,7 +163,10 @@ class PublicDataTests(unittest.TestCase):
                 lambda op, year, page, key: response([item(date=f"{year}0101")]))
             for path in output.rglob("*.json"):
                 self.assertNotIn("private-key", path.read_text())
-            self.assertEqual(json.loads((output / "source.json").read_text())["years"]["holidays"], ["2026", "2027"])
+            self.assertEqual(
+                json.loads((output / "source.json").read_text())["years"]["holidays"],
+                ["2026", "2027", "2028", "2029"],
+            )
             self.assertIn("기존", (repo / "public/basic.json").read_text())
 
     def test_python_collection_and_node_import_work_together(self):
@@ -178,7 +190,7 @@ class PublicDataTests(unittest.TestCase):
             self.assertEqual(first.stdout.strip(), "true")
             second = subprocess.run(command, check=True, capture_output=True, text=True)
             self.assertEqual(second.stdout.strip(), "false")
-            self.assertTrue((repo / "src/holidays/2027.ts").is_file())
+            self.assertTrue((repo / "src/holidays/2029.ts").is_file())
             source = json.loads((repo / "public/source.json").read_text(encoding="utf-8"))
             self.assertEqual(source["provider"], "한국천문연구원")
             self.assertNotIn("private-key", (repo / "public/source.json").read_text())
