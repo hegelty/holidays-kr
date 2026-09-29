@@ -8,3 +8,4 @@ export { default as y2024 } from './2024.ts';
 export { default as y2025 } from './2025.ts';
 export { default as y2026 } from './2026.ts';
 export { default as y2027 } from './2027.ts';
+export { default as y2028 } from './2028.ts';
